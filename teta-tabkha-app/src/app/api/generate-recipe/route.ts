@@ -1,9 +1,29 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient'; // For saving recipe later
-import OpenAI from 'openai';
+// import OpenAI from 'openai'; // Commented out
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const geminiAPIKey = process.env.GEMINI_API_KEY;
+if (!geminiAPIKey) {
+  throw new Error("GEMINI_API_KEY is not defined in environment variables.");
+}
+const genAI = new GoogleGenerativeAI(geminiAPIKey);
+
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash-latest", // Or "gemini-1.5-flash"
+  generationConfig: {
+    responseMimeType: "application/json", // Request JSON output
+    temperature: 0.7,
+    // maxOutputTokens: 500, // Adjust as needed
+  },
+  // Safety settings can be adjusted if needed, though default should be fine.
+  // See: https://ai.google.dev/docs/safety_setting_gemini
+  safetySettings: [
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  ]
 });
 
 // Helper function to get current user ID (optional, if you want to associate recipes with users)
@@ -72,37 +92,46 @@ export async function POST(request: Request) {
     // Construct the prompt for GPT-4o
     // This prompt structure is based on the example in the project brief.
     // We expect the AI to return a JSON object matching the specified output structure.
-    const systemPrompt = `You are Teta Tab5a, an AI Sudanese grandma from the ${dialect} region. Your personality is ${style}. You are wise, loving, a bit sassy, and you express yourself with cultural idioms and playful scolding. A user will provide you with a list of ingredients. Your task is to generate an authentic Sudanese recipe using these ingredients. Include a dish name, a short nostalgic story related to the dish or ingredients, and the cooking steps. Make sure your response is in a JSON format with the following structure: { "dish_name": "String", "story": "String", "steps": ["String", "String", ...], "teta_comment": "String" }. If the user specifies dietary preferences like 'vegan', 'quick', or 'dessert', adapt the recipe and your commentary accordingly.`;
+    // For Gemini, the system prompt often works well as part of the initial user message
+    // or as a preamble to the main user query within a single prompt.
 
-    let userMessageContent = `I have these ingredients: ${ingredients.join(', ')}. I'm looking for a recipe from a ${dialect} Teta.`;
-    if (vegan) userMessageContent += " Please make it vegan, ya Teta.";
-    if (quick) userMessageContent += " And I need it quick, I'm in a rush!";
-    if (dessert) userMessageContent += " Can you make a dessert with these?";
+    let fullPrompt = `You are Teta Tab5a, an AI Sudanese grandma from the ${dialect} region. Your personality is ${style}. You are wise, loving, a bit sassy, and you express yourself with cultural idioms and playful scolding. A user will provide you with a list of ingredients. Your task is to generate an authentic Sudanese recipe using these ingredients. Include a dish name, a short nostalgic story related to the dish or ingredients, and the cooking steps. Make sure your response is in a VALID JSON format with the following structure: { "dish_name": "String", "story": "String", "steps": ["String", "String", ...], "teta_comment": "String" }. Do not include any text outside of this JSON structure, including markdown tags like \`\`\`json.\n\n`;
 
+    fullPrompt += `User's ingredients: ${ingredients.join(', ')}. User's preferred Teta dialect: ${dialect}.`;
+    if (vegan) fullPrompt += " User preference: vegan.";
+    if (quick) fullPrompt += " User preference: quick recipe.";
+    if (dessert) fullPrompt += " User preference: dessert.";
+    fullPrompt += "\n\nGenerate the recipe now.";
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // Using GPT-4o as specified
-      response_format: { type: "json_object" }, // Ensuring JSON output
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessageContent }
-      ],
-      temperature: 0.7, // Adjust for creativity vs. predictability
-      // max_tokens: 500, // Adjust as needed
-    });
+    const result = await model.generateContent(fullPrompt);
+    const response = result.response;
+
+    if (!response || !response.text()) {
+        console.error("Gemini response was empty or invalid:", response);
+        throw new Error("AI did not return any content or the response was invalid.");
+    }
 
     let aiResponseData;
-    if (completion.choices[0].message.content) {
-      aiResponseData = JSON.parse(completion.choices[0].message.content);
-    } else {
-      throw new Error("AI did not return content.");
+    try {
+        // Gemini should return a clean JSON string due to responseMimeType.
+        // If it includes markdown (```json ... ```), we need to strip it.
+        let jsonText = response.text();
+        if (jsonText.startsWith("```json")) {
+            jsonText = jsonText.substring(7, jsonText.length - 3).trim();
+        } else if (jsonText.startsWith("```")) {
+             jsonText = jsonText.substring(3, jsonText.length - 3).trim();
+        }
+        aiResponseData = JSON.parse(jsonText);
+    } catch (e: any) {
+        console.error("Failed to parse JSON response from AI:", response.text(), e);
+        throw new Error(`AI returned invalid JSON. Raw response: ${response.text()}`);
     }
 
     const { dish_name, story, steps, teta_comment } = aiResponseData;
 
     if (!dish_name || !story || !steps || !teta_comment) {
-        console.error("AI response missing required fields:", aiResponseData);
-        throw new Error("AI response did not follow the expected JSON structure.");
+        console.error("AI response missing required fields after parsing:", aiResponseData);
+        throw new Error("AI response did not follow the expected JSON structure, or fields were missing.");
     }
 
     // --- Database Saving ---
