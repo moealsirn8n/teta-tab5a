@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif; /* This will be overridden by Tailwind's font settings in layout.tsx */
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+
+/* Ramadan Theme */
+.ramadan-theme {
+  --background: #281E46; /* Dark purple/blue */
+  --foreground: #E6E6E6; /* Lighter text */
+
+  /* Override specific brand colors for Ramadan theme */
+  --brand-clay-ramadan: #d1c4e9; /* Lighter purple for text that was clay */
+  --brand-spice-ramadan: #fdd835; /* Yellow/Gold for text that was spice */
+  --brand-clay-bg-ramadan: #311b92; /* Darker purple for bg that was clay */
+  --brand-clay-border-ramadan: #5e35b1;
+  --brand-spice-border-ramadan: #fdd835;
+  --brand-spice-accent-ramadan: #fdd835; /* For checkbox accents etc. */
+}
+
+/* Apply Ramadan colors to components that use Tailwind brand classes */
+/* This requires components to use CSS variables or for Tailwind config to be themeable, which is complex.
+   A simpler approach is to have specific CSS overrides like this: */
+.ramadan-theme .bg-brand-flour { background-color: var(--background); /* Body background */}
+.ramadan-theme .text-brand-spice { color: var(--brand-spice-ramadan); }
+.ramadan-theme .text-brand-clay { color: var(--brand-clay-ramadan); }
+.ramadan-theme .bg-brand-clay { background-color: var(--brand-clay-bg-ramadan); }
+.ramadan-theme .border-brand-clay { border-color: var(--brand-clay-border-ramadan); }
+.ramadan-theme .border-brand-spice { border-color: var(--brand-spice-border-ramadan); }
+.ramadan-theme .accent-brand-spice { accent-color: var(--brand-spice-accent-ramadan); }
+
+/* Ensure layout.tsx body also respects these vars if it sets its own bg/text */
+.ramadan-theme .body-ramadan-theme-bg { background-color: var(--background) !important; }
+.ramadan-theme .body-ramadan-theme-text { color: var(--foreground) !important; }
